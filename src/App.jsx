@@ -7,6 +7,8 @@ import FocusMode from './pages/FocusMode.jsx'
 import Archive from './pages/Archive.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
 import { useConfetti } from './hooks/useConfetti'
+import { useTheme } from './hooks/useTheme'
+import { useSound } from './hooks/useSound'
 
 export const TaskContext = createContext(null)
 export const useTaskContext = () => useContext(TaskContext)
@@ -16,31 +18,31 @@ const SAMPLE_TASKS = [
     id: uuidv4(), title: 'Submit design proposal', category: 'Work', priority: 'critical',
     deadline: new Date(Date.now() + 1.5 * 3600000).toISOString(), estimatedHours: 2,
     description: 'Final presentation slides for the client review',
-    createdAt: new Date().toISOString(), completed: false,
+    createdAt: new Date().toISOString(), completed: false, progress: 60, tags: ['design','urgent'],
   },
   {
     id: uuidv4(), title: 'Review PR #247', category: 'Work', priority: 'urgent',
     deadline: new Date(Date.now() + 3 * 3600000).toISOString(), estimatedHours: 1,
     description: 'Code review for the authentication module',
-    createdAt: new Date().toISOString(), completed: false,
+    createdAt: new Date().toISOString(), completed: false, progress: 20, tags: ['code'],
   },
   {
     id: uuidv4(), title: 'Algorithm assignment', category: 'Study', priority: 'medium',
     deadline: new Date(Date.now() + 18 * 3600000).toISOString(), estimatedHours: 3,
     description: 'Dynamic programming problems set 4',
-    createdAt: new Date().toISOString(), completed: false,
+    createdAt: new Date().toISOString(), completed: false, progress: 0, tags: ['dsa'],
   },
   {
     id: uuidv4(), title: 'Gym session', category: 'Personal', priority: 'low',
     deadline: new Date(Date.now() + 36 * 3600000).toISOString(), estimatedHours: 1.5,
     description: 'Leg day workout',
-    createdAt: new Date().toISOString(), completed: false,
+    createdAt: new Date().toISOString(), completed: false, progress: 0, tags: [],
   },
   {
     id: uuidv4(), title: 'Read design patterns', category: 'Study', priority: 'low',
     deadline: new Date(Date.now() + 72 * 3600000).toISOString(), estimatedHours: 2,
     description: 'Chapter 5–7: Behavioral patterns',
-    createdAt: new Date().toISOString(), completed: false,
+    createdAt: new Date().toISOString(), completed: false, progress: 35, tags: ['reading'],
   },
 ]
 
@@ -52,19 +54,18 @@ function App() {
     try { return JSON.parse(localStorage.getItem('dos-archive')) || [] } catch { return [] }
   })
   const [notification, setNotification] = useState(null)
-  const [cmdOpen, setCmdOpen] = useState(false)
-  const { fire } = useConfetti()
+  const [cmdOpen, setCmdOpen]           = useState(false)
+  const { theme, toggleTheme }          = useTheme()
+  const { fire }                        = useConfetti()
+  const { playComplete, playAdd }       = useSound()
 
-  useEffect(() => { localStorage.setItem('dos-tasks', JSON.stringify(tasks)) }, [tasks])
-  useEffect(() => { localStorage.setItem('dos-archive', JSON.stringify(archivedTasks)) }, [archivedTasks])
+  useEffect(() => { localStorage.setItem('dos-tasks',    JSON.stringify(tasks)) }, [tasks])
+  useEffect(() => { localStorage.setItem('dos-archive',  JSON.stringify(archivedTasks)) }, [archivedTasks])
 
-  // Global Ctrl+K shortcut
+  // Global Ctrl+K
   useEffect(() => {
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault()
-        setCmdOpen(o => !o)
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setCmdOpen(o => !o) }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -76,35 +77,53 @@ function App() {
   }
 
   const addTask = useCallback((task) => {
-    const t = { ...task, id: uuidv4(), createdAt: new Date().toISOString(), completed: false }
+    const t = { ...task, id: uuidv4(), createdAt: new Date().toISOString(), completed: false, progress: 0, tags: task.tags || [] }
     setTasks(p => [...p, t])
+    playAdd()
     notify(`"${task.title}" added`, 'success')
-  }, [])
+  }, [playAdd])
 
   const completeTask = useCallback((id) => {
     setTasks(p => {
       const task = p.find(t => t.id === id)
       if (task) {
         setArchivedTasks(a => [...a, { ...task, completedAt: new Date().toISOString(), completed: true }])
-        notify(`"${task.title}" completed ✓`, 'success')
+        playComplete()
         fire()
+        notify(`"${task.title}" completed ✓`, 'success')
       }
       return p.filter(t => t.id !== id)
     })
-  }, [fire])
+  }, [fire, playComplete])
 
   const deleteTask = useCallback((id) => {
     setTasks(p => p.filter(t => t.id !== id))
     notify('Task deleted', 'info')
   }, [])
 
+  // Update any task field (progress, tags, etc.)
+  const updateTask = useCallback((id, updates) => {
+    setTasks(p => p.map(t => t.id === id ? { ...t, ...updates } : t))
+  }, [])
+
+  // Reorder tasks (drag & drop)
+  const reorderTasks = useCallback((orderedIds) => {
+    setTasks(prev => {
+      const map = Object.fromEntries(prev.map(t => [t.id, t]))
+      const reordered = orderedIds.map(id => map[id]).filter(Boolean)
+      // Preserve any tasks not in orderedIds (e.g. filtered out)
+      const rest = prev.filter(t => !orderedIds.includes(t.id))
+      return [...reordered, ...rest]
+    })
+  }, [])
+
   return (
-    <TaskContext.Provider value={{ tasks, archivedTasks, addTask, completeTask, deleteTask }}>
+    <TaskContext.Provider value={{ tasks, archivedTasks, addTask, completeTask, deleteTask, updateTask, reorderTasks }}>
       <BrowserRouter>
         <div className="app-shell">
-          <Sidebar onOpenCmd={() => setCmdOpen(true)} />
+          <Sidebar onOpenCmd={() => setCmdOpen(true)} theme={theme} toggleTheme={toggleTheme} />
           <main className="app-main">
-            <TopBar onOpenCmd={() => setCmdOpen(true)} />
+            <TopBar onOpenCmd={() => setCmdOpen(true)} theme={theme} toggleTheme={toggleTheme} />
             <div className="app-content">
               <Routes>
                 <Route path="/"          element={<Dashboard />} />
@@ -123,7 +142,7 @@ function App() {
   )
 }
 
-function Sidebar({ onOpenCmd }) {
+function Sidebar({ onOpenCmd, theme, toggleTheme }) {
   const { tasks } = useTaskContext()
   const critical = tasks.filter(t => {
     const h = (new Date(t.deadline) - new Date()) / 3600000
@@ -131,37 +150,40 @@ function Sidebar({ onOpenCmd }) {
   }).length
 
   const nav = [
-    { to: '/', icon: '⬡', label: 'DASHBOARD', end: true },
-    { to: '/add', icon: '+', label: 'ADD TASK' },
-    { to: '/focus', icon: '◎', label: 'FOCUS MODE' },
-    { to: '/archive', icon: '▣', label: 'ARCHIVE' },
+    { to:'/', icon:'⬡', label:'DASHBOARD', end:true },
+    { to:'/add', icon:'+', label:'ADD TASK' },
+    { to:'/focus', icon:'◎', label:'FOCUS MODE' },
+    { to:'/archive', icon:'▣', label:'ARCHIVE' },
   ]
 
   return (
     <aside className="sidebar" role="navigation" aria-label="Main navigation">
       <div className="sidebar-logo">
         <span className="logo-text">Urgentify</span>
-        <span className="logo-version">v1.0</span>
+        <span className="logo-version">v2.0</span>
       </div>
       <nav className="sidebar-nav">
         {nav.map(item => (
-          <NavLink
-            key={item.to} to={item.to} end={item.end}
+          <NavLink key={item.to} to={item.to} end={item.end}
             className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
-            aria-label={item.label}
-          >
+            aria-label={item.label}>
             <span className="nav-icon">{item.icon}</span>
             <span className="nav-label">{item.label}</span>
             {item.to === '/' && critical > 0 && <span className="nav-badge">{critical}</span>}
           </NavLink>
         ))}
-        <button className="nav-item nav-cmd-btn" onClick={onOpenCmd} aria-label="Open command palette (Ctrl+K)">
+        <button className="nav-item nav-cmd-btn" onClick={onOpenCmd} aria-label="Command palette (Ctrl+K)">
           <span className="nav-icon">⌘</span>
           <span className="nav-label">COMMAND</span>
           <span className="nav-cmd-hint">^K</span>
         </button>
       </nav>
       <div className="sidebar-footer">
+        {/* Theme toggle */}
+        <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+          <span className="theme-icon">{theme === 'dark' ? '☀' : '◗'}</span>
+          <span className="theme-label">{theme === 'dark' ? 'LIGHT' : 'DARK'}</span>
+        </button>
         <div className="system-status">
           <div className="status-dot active" />
           <span>SYS ACTIVE</span>
@@ -172,9 +194,9 @@ function Sidebar({ onOpenCmd }) {
   )
 }
 
-function TopBar({ onOpenCmd }) {
+function TopBar({ onOpenCmd, theme, toggleTheme }) {
   const { tasks } = useTaskContext()
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
   const [, setTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000)
@@ -189,23 +211,23 @@ function TopBar({ onOpenCmd }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <span className="topbar-time">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
-        <span className="topbar-date">{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+        <span className="topbar-time">{new Date().toLocaleTimeString('en-US',{hour12:false})}</span>
+        <span className="topbar-date">{new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</span>
       </div>
       <div className="topbar-right">
         {critical.length >= 2 && (
-          <button className="collision-warning" onClick={() => navigate('/')}
-            aria-label={`${critical.length} deadline collision`}>
+          <button className="collision-warning" onClick={() => navigate('/')}>
             <span className="blink">⚠</span>
             <span>DEADLINE COLLISION — {critical.length} tasks in &lt;2h</span>
           </button>
         )}
-        <button className="topbar-cmd" onClick={onOpenCmd} aria-label="Open command palette">
+        <button className="topbar-theme" onClick={toggleTheme} aria-label="Toggle theme">
+          {theme === 'dark' ? '☀' : '◗'}
+        </button>
+        <button className="topbar-cmd" onClick={onOpenCmd} aria-label="Command palette">
           <span>⌘</span><span>Ctrl+K</span>
         </button>
-        <button className="topbar-add" onClick={() => navigate('/add')} aria-label="Add new task">
-          + NEW TASK
-        </button>
+        <button className="topbar-add" onClick={() => navigate('/add')}>+ NEW TASK</button>
       </div>
     </header>
   )
