@@ -6,6 +6,7 @@ import AddTask from './pages/AddTask.jsx'
 import FocusMode from './pages/FocusMode.jsx'
 import Archive from './pages/Archive.jsx'
 import CommandPalette from './components/CommandPalette.jsx'
+import VisualFX from './components/Visualfx.jsx'
 import { useConfetti } from './hooks/useConfetti'
 import { useTheme } from './hooks/useTheme'
 import { useSound } from './hooks/useSound'
@@ -121,16 +122,17 @@ function App() {
     <TaskContext.Provider value={{ tasks, archivedTasks, addTask, completeTask, deleteTask, updateTask, reorderTasks }}>
       <BrowserRouter>
         <div className="app-shell">
+          <VisualFX />
           <Sidebar onOpenCmd={() => setCmdOpen(true)} theme={theme} toggleTheme={toggleTheme} />
           <main className="app-main">
             <TopBar onOpenCmd={() => setCmdOpen(true)} theme={theme} toggleTheme={toggleTheme} />
-            <div className="app-content">
+            <div className="app-content page-transition-wrapper">
               <Routes>
-                <Route path="/"          element={<Dashboard />} />
-                <Route path="/add"       element={<AddTask />} />
-                <Route path="/focus"     element={<FocusMode />} />
-                <Route path="/focus/:id" element={<FocusMode />} />
-                <Route path="/archive"   element={<Archive />} />
+                <Route path="/"          element={<PageWrap><Dashboard /></PageWrap>} />
+                <Route path="/add"       element={<PageWrap><AddTask /></PageWrap>} />
+                <Route path="/focus"     element={<PageWrap><FocusMode /></PageWrap>} />
+                <Route path="/focus/:id" element={<PageWrap><FocusMode /></PageWrap>} />
+                <Route path="/archive"   element={<PageWrap><Archive /></PageWrap>} />
               </Routes>
             </div>
           </main>
@@ -239,6 +241,10 @@ function Notification({ data }) {
       {data.message}
     </div>
   )
+}
+
+function PageWrap({ children }) {
+  return <div className="page-wrap">{children}</div>
 }
 
 export default App
